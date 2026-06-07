@@ -123,7 +123,9 @@ public class InterpretationService {
     }
 
     /**
-     * 统一的识别结果处理：翻译 → 上下文 → 下发字幕
+     * 统一的识别结果处理：
+     * - 中间结果（isFinal=false）：直接显示原文，不调用大模型
+     * - 终句结果（isFinal=true）：调用大模型翻译 + TTS语音输出
      */
     private void handleRecognizedText(String sessionId, String recognizedText, boolean isFinal,
                                      Consumer<Map<String, Object>> callback) {
@@ -133,22 +135,35 @@ public class InterpretationService {
         String sourceLang = window.getSourceLang();
         String targetLang = window.getTargetLang();
 
-        // 异步翻译
+        if (!isFinal) {
+            // 中间结果：直接显示原文，不调用翻译（避免频繁请求大模型）
+            callback.accept(new HashMap<>(Map.of(
+                    "type", EventType.SUBTITLE.name(),
+                    "sourceText", recognizedText,
+                    "targetText", "...",
+                    "isFinal", false,
+                    "timestamp", System.currentTimeMillis()
+            )));
+            return;
+        }
+
+        // 终句结果：异步翻译
         translationService.translateAsync(recognizedText, sourceLang, targetLang, translation -> {
             try {
                 int index = window.add(recognizedText, translation);
 
-                String eventType = isFinal ? EventType.COMPLET.name() : EventType.SUBTITLE.name();
+                // 发送终句翻译结果
                 callback.accept(new HashMap<>(Map.of(
-                        "type", eventType,
+                        "type", EventType.COMPLET.name(),
                         "index", index,
                         "sourceText", recognizedText,
                         "targetText", translation,
-                        "isFinal", isFinal,
+                        "isFinal", true,
                         "timestamp", System.currentTimeMillis()
                 )));
 
-                if (isFinal && translation != null && !translation.isBlank()
+                // TTS语音输出（仅终句）
+                if (translation != null && !translation.isBlank()
                         && !translation.startsWith("[")) {
                     callback.accept(new HashMap<>(Map.of(
                             "type", EventType.TTS_SPEAK.name(),
