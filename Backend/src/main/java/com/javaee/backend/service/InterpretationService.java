@@ -1,19 +1,27 @@
 package com.javaee.backend.service;
 
-//import dev.langchain4j.model.chat.ChatLanguageModel;
+import com.javaee.backend.websocket.EventType;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.Base64;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
+/**
+ * 同声传译服务 - 整合ASR + 翻译 + 上下文修正
+ */
 @Slf4j
 @Service
 public class InterpretationService {
 
-//    private final ChatLanguageModel fastModel;       // 快速翻译
-//    private final ChatLanguageModel refineModel;     // 修正模型
+    @Autowired
+    private AsrService asrService;
+
+    @Autowired
+    private TranslationService translationService;
 
     // 每个会话维护一个上下文窗口，存储最近 N 句话的原文+翻译
     private final Map<String, ContextWindow> sessionContexts = new ConcurrentHashMap<>();
@@ -21,56 +29,134 @@ public class InterpretationService {
     // 修正触发阈值：攒够 N 句新翻译才做一次回溯修正
     private static final int CORRECTION_WINDOW = 5;
 
-//    public InterpretationService(ChatLanguageModel fastModel, ChatLanguageModel refineModel) {
-//        this.fastModel = fastModel;
-//        this.refineModel = refineModel;
-//    }
+    // ASR 是否可用
+    private final Map<String, Boolean> asrAvailable = new ConcurrentHashMap<>();
 
     /**
-     * 处理音频块（实际项目中这里先调 ASR，这里简化为直接收到文本）
-     *
-     * @param sessionId  会话ID
-     * @param audioBase64 音频 base64（或识别后的文本）
-     * @param sourceLang 源语言
-     * @param targetLang 目标语言
-     * @param callback   翻译结果回调 → Handler 拿到后发给前端
+     * 启动同传会话
      */
-    public void processAudioChunk(
-            String sessionId,
-            String audioBase64,
-            String sourceLang,
-            String targetLang,
-            Consumer<Map<String, Object>> callback) {
+    public void startSession(String sessionId, String sourceLang, String targetLang, Consumer<Map<String, Object>> callback) {
+        log.info("启动同传会话: sessionId={}, {}→{}", sessionId, sourceLang, targetLang);
 
-        // TODO: 实际项目这里调 ASR（阿里云NLS / 讯飞）
-        // 现在先把 audioBase64 当成已经识别好的文本
-        String recognizedText = audioBase64;
-        if (recognizedText == null || recognizedText.isBlank()) return;
+        // 初始化上下文窗口
+        sessionContexts.put(sessionId, new ContextWindow(sourceLang, targetLang));
+        asrAvailable.put(sessionId, false);  // 默认不可用
 
-        // 1. 快速翻译
-        // TODO: 队友接入模型后，取消下方注释并删除 mockFastTranslate 调用
-        // String translation = fastModel.generate(prompt);
-        String translation = mockFastTranslate(recognizedText, sourceLang, targetLang);
+        try {
+            // 尝试启动ASR识别（异步，等onReady回调后才标记为可用）
+            asrService.startRecognition(sessionId, new AsrService.RecognitionCallback() {
+                @Override
+                public void onReady() {
+                    // ASR WebSocket连接成功，标记可用
+                    asrAvailable.put(sessionId, true);
+                    log.info("ASR就绪(WebSocket已连): {}", sessionId);
+                }
 
-        // 2. 保存到上下文窗口
-        ContextWindow window = sessionContexts.computeIfAbsent(
-                sessionId, k -> new ContextWindow()
-        );
-        int index = window.add(recognizedText, translation);
+                @Override
+                public void onResult(String text, boolean isFinal) {
+                    handleAsrResult(sessionId, text, isFinal, callback);
+                }
 
-        // 3. 下发字幕
+                @Override
+                public void onError(String errorMessage) {
+                    log.warn("ASR不可用: sessionId={}, error={}", sessionId, errorMessage);
+                    asrAvailable.put(sessionId, false);
+                }
+            });
+            log.info("ASR启动请求已发送，等待就绪回调: {}", sessionId);
+        } catch (Exception e) {
+            log.warn("ASR启动失败，降级为文本模式: {}", e.getMessage());
+            asrAvailable.put(sessionId, false);
+        }
+
+        // 无论ASR是否成功，都发送 CONNECTED
+        String mode = Boolean.TRUE.equals(asrAvailable.get(sessionId)) ? "语音+文本模式" : "文本模式（ASR不可用）";
         callback.accept(Map.of(
-                "type", "SUBTITLE",
-                "index", index,
-                "sourceText", recognizedText,
-                "targetText", translation,
+                "type", EventType.CONNECTED.name(),
+                "sessionId", sessionId,
+                "sourceLang", sourceLang,
+                "targetLang", targetLang,
+                "message", "同传会话已建立 - " + mode,
                 "timestamp", System.currentTimeMillis()
         ));
+        log.info("同传会话启动: sessionId={}, {}→{}, 模式={}", sessionId, sourceLang, targetLang, mode);
+    }
 
-        // 4. 攒够 CORRECTION_WINDOW 句，触发修正
-        if (window.getPendingCount() >= CORRECTION_WINDOW) {
-            checkAndCorrect(window, callback);
+    /**
+     * 处理音频块 - 发送到ASR（如果可用）
+     */
+    public void processAudioChunk(String sessionId, byte[] audioData, Consumer<Map<String, Object>> callback) {
+        if (!Boolean.TRUE.equals(asrAvailable.get(sessionId))) {
+            return;
         }
+        try {
+            asrService.sendAudio(sessionId, audioData);
+        } catch (Exception e) {
+            log.warn("ASR发送失败，标记为不可用: {}", e.getMessage());
+            asrAvailable.put(sessionId, false);
+            // 通知前端ASR降级
+            try {
+                callback.accept(Map.of(
+                        "type", EventType.ERROR.name(),
+                        "code", 5001,
+                        "message", "ASR连接已断开，降级为文本模式",
+                        "timestamp", System.currentTimeMillis()
+                ));
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * 处理文本输入（绕过ASR直接测试翻译）
+     */
+    public void processText(String sessionId, String text, String sourceLang, String targetLang,
+                           Consumer<Map<String, Object>> callback) {
+        if (text == null || text.isBlank()) return;
+        handleRecognizedText(sessionId, text, false, callback);
+    }
+
+    /**
+     * ASR结果回调处理
+     */
+    private void handleAsrResult(String sessionId, String recognizedText, boolean isFinal,
+                                Consumer<Map<String, Object>> callback) {
+        handleRecognizedText(sessionId, recognizedText, isFinal, callback);
+    }
+
+    /**
+     * 统一的识别结果处理：翻译 → 上下文 → 下发字幕
+     */
+    private void handleRecognizedText(String sessionId, String recognizedText, boolean isFinal,
+                                     Consumer<Map<String, Object>> callback) {
+        ContextWindow window = sessionContexts.get(sessionId);
+        if (window == null) return;
+
+        String sourceLang = window.getSourceLang();
+        String targetLang = window.getTargetLang();
+
+        // 异步翻译
+        translationService.translateAsync(recognizedText, sourceLang, targetLang, translation -> {
+            try {
+                int index = window.add(recognizedText, translation);
+
+                String eventType = isFinal ? EventType.COMPLET.name() : EventType.SUBTITLE.name();
+                callback.accept(Map.of(
+                        "type", eventType,
+                        "index", index,
+                        "sourceText", recognizedText,
+                        "targetText", translation,
+                        "isFinal", isFinal,
+                        "timestamp", System.currentTimeMillis()
+                ));
+
+                // 攒够句子数触发上下文修正
+                if (window.getPendingCount() >= CORRECTION_WINDOW) {
+                    checkAndCorrect(window, callback);
+                }
+            } catch (Exception e) {
+                log.error("发送翻译结果失败: {}", e.getMessage());
+            }
+        });
     }
 
     /**
@@ -78,6 +164,7 @@ public class InterpretationService {
      */
     private void checkAndCorrect(ContextWindow window, Consumer<Map<String, Object>> callback) {
         List<String> reviewList = window.getPendingForReview();
+        String combinedSource = reviewList.stream().collect(java.util.stream.Collectors.joining("\n"));
 
         String prompt = String.format(
                 """
@@ -89,31 +176,30 @@ public class InterpretationService {
                 句子列表：
                 %s
                 """,
-                String.join("\n", reviewList)
+                combinedSource
         );
 
-        // TODO: 队友接入模型后，取消下方注释并删除 mockRefine 调用
-        // String review = refineModel.generate(prompt);
-        String review = mockRefine(reviewList);
-        List<Map.Entry<Integer, String>> corrections = parseCorrections(review);
+        translationService.translateAsync(prompt, "zh", "zh", review -> {
+            List<Map.Entry<Integer, String>> corrections = parseCorrections(review);
 
-        for (Map.Entry<Integer, String> correction : corrections) {
-            int idx = correction.getKey();
-            String oldTranslation = window.getTranslation(idx);
-            String newTranslation = correction.getValue();
+            for (Map.Entry<Integer, String> correction : corrections) {
+                int idx = correction.getKey();
+                String oldTranslation = window.getTranslation(idx);
+                String newTranslation = correction.getValue();
 
-            window.updateTranslation(idx, newTranslation);
+                window.updateTranslation(idx, newTranslation);
 
-            callback.accept(Map.of(
-                    "type", "CORRECTION",
-                    "index", idx,
-                    "oldTranslation", oldTranslation,
-                    "newTranslation", newTranslation,
-                    "timestamp", System.currentTimeMillis()
-            ));
-        }
+                callback.accept(Map.of(
+                        "type", EventType.CORRECTION.name(),
+                        "index", idx,
+                        "oldTranslation", oldTranslation,
+                        "newTranslation", newTranslation,
+                        "timestamp", System.currentTimeMillis()
+                ));
+            }
 
-        window.markReviewed();  // 标记这批已审阅
+            window.markReviewed();
+        });
     }
 
     /**
@@ -136,29 +222,30 @@ public class InterpretationService {
         return corrections;
     }
 
-    // ======================== TODO: 以下为临时占位方法，队友接入模型后删除 ========================
-
     /**
-     * 快速翻译占位 — 队友接入 fastModel 后删除此方法
+     * 停止同传会话（先停止ASR让它返回最终结果，再清理资源）
      */
-    private String mockFastTranslate(String text, String sourceLang, String targetLang) {
-        log.warn("[MOCK] fastModel 未接入，返回占位译文: {} → {}", sourceLang, targetLang);
-        return "[待翻译] " + text;
-    }
+    public void stopSession(String sessionId) {
+        // 先停止ASR，让它在回调中把最终结果发出去
+        try {
+            asrService.stopRecognition(sessionId);
+            log.info("停止ASR识别会话: {}", sessionId);
+        } catch (Exception e) {
+            log.warn("停止ASR识别会话异常: {}", e.getMessage());
+        }
 
-    /**
-     * 上下文修正占位 — 队友接入 refineModel 后删除此方法
-     */
-    private String mockRefine(List<String> reviewList) {
-        log.warn("[MOCK] refineModel 未接入，返回全 OK");
-        return reviewList.stream().map(s -> "OK").collect(java.util.stream.Collectors.joining("\n"));
+        // 延迟清理：等ASR回调完成后再移除上下文
+        new Thread(() -> {
+            try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+            sessionContexts.remove(sessionId);
+            asrAvailable.remove(sessionId);
+            log.info("同传会话资源已清理: {}", sessionId);
+        }).start();
     }
-
-    // ======================== 占位方法结束 ========================
 
     /** 会话断开时清理上下文 */
     public void cleanup(String sessionId) {
-        sessionContexts.remove(sessionId);
+        stopSession(sessionId);
     }
 
     // ======================== 内部类：上下文窗口 ========================
@@ -166,6 +253,16 @@ public class InterpretationService {
     private static class ContextWindow {
         private final List<Sentence> sentences = new ArrayList<>();
         private int reviewedUpTo = 0;  // 已经审阅到第几句
+        private final String sourceLang;
+        private final String targetLang;
+
+        ContextWindow(String sourceLang, String targetLang) {
+            this.sourceLang = sourceLang;
+            this.targetLang = targetLang;
+        }
+
+        String getSourceLang() { return sourceLang; }
+        String getTargetLang() { return targetLang; }
 
         record Sentence(int index, String source, String translation) {}
 

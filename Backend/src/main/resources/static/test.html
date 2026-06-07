@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinguaFlow - 同传测试</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        h1 { text-align: center; margin-bottom: 20px; color: #e94560; }
+        .container { max-width: 900px; margin: 0 auto; }
+
+        /* 连接状态 */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #16213e;
+            padding: 14px 20px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+        }
+        .status-dot {
+            width: 14px; height: 14px; border-radius: 50%;
+            background: #555; transition: 0.3s;
+        }
+        .status-dot.connected { background: #00d26a; box-shadow: 0 0 10px #00d26a80; }
+        .status-dot.error { background: #e94560; box-shadow: 0 0 10px #e9456080; }
+        .status-text { font-size: 15px; }
+
+        /* 控制区 */
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        button {
+            padding: 11px 24px;
+            border: none; border-radius: 8px;
+            cursor: pointer; font-size: 14px; font-weight: 600;
+            transition: all 0.2s;
+        }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-connect { background: #0f3460; color: #fff; }
+        .btn-connect:hover:not(:disabled) { background: #1a5276; }
+        .btn-record { background: #e94560; color: #fff; }
+        .btn-record:hover:not(:disabled) { background: #c0392b; }
+        .btn-record.recording { background: #ff4757; animation: pulse 1.2s infinite; }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(233,69,96,0.5); }
+            50% { box-shadow: 0 0 0 12px rgba(233,69,96,0); }
+        }
+        .btn-send { background: #00b894; color: #fff; }
+        .btn-send:hover:not(:disabled) { background: #00a085; }
+        .btn-clear { background: #636e72; color: #fff; }
+        select, input {
+            padding: 10px 14px; border: none; border-radius: 8px;
+            background: #16213e; color: #fff; font-size: 14px;
+        }
+        select option { background: #16213e; }
+
+        /* 结果区域 */
+        .result-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            min-height: 300px;
+        }
+        .panel {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 16px;
+            overflow-y: auto;
+            max-height: 500px;
+        }
+        .panel h3 {
+            color: #e94560;
+            margin-bottom: 12px;
+            font-size: 15px;
+            border-bottom: 1px solid #0f3460;
+            padding-bottom: 8px;
+        }
+        .msg-item {
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .msg-subtitle { background: #0f346040; border-left: 3px solid #0984e3; }
+        .msg-complet { background: #0f346040; border-left: 3px solid #00d26a; }
+        .msg-correction { background: #0f346040; border-left: 3px solid #fdcb6e; }
+        .msg-error { background: #e9456020; border-left: 3px solid #e94560; }
+        .msg-info { background: #0f346020; border-left: 3px solid #636e72; }
+        .source-text { color: #74b9ff; font-size: 13px; }
+        .target-text { color: #ffeaa7; font-size: 15px; font-weight: 500; }
+        .tag {
+            display: inline-block; padding: 2px 7px; border-radius: 4px;
+            font-size: 11px; font-weight: 600; margin-right: 6px;
+        }
+        .tag-SUBTITLE { background: #0984e3; }
+        .tag-CORRECTION { background: #fdcb6e; color: #333; }
+        .tag-COMPLET { background: #00d26a; color: #333; }
+        .tag-ERROR { background: #e94560; }
+        .tag-CONNECTED { background: #636e72; }
+        .time { float: right; color: #666; font-size: 11px; }
+
+        /* 日志 */
+        .log-area {
+            margin-top: 16px;
+            background: #0d1117;
+            border-radius: 10px;
+            padding: 14px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+            font-size: 12px;
+            color: #8b949e;
+        }
+        .log-line { margin-bottom: 2px; word-break: break-all; }
+
+        /* 状态指示条 */
+        .status-indicators {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .indicator {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        .indicator-label { font-size: 11px; color: #888; margin-bottom: 6px; }
+        .indicator-value {
+            font-size: 14px; font-weight: 600;
+            transition: color 0.3s;
+        }
+        .indicator-value.ok { color: #00d26a; }
+        .indicator-value.warn { color: #fdcb6e; }
+        .indicator-value.err { color: #e94560; }
+        .indicator-value.idle { color: #666; }
+
+        /* 音频波形 */
+        .waveform-bar {
+            height: 30px; background: #0f3460; border-radius: 4px;
+            overflow: hidden; position: relative;
+        }
+        .waveform-fill {
+            position: absolute; left: 0; top: 0; bottom: 0;
+            background: linear-gradient(90deg, #00d26a, #0984e3);
+            width: 0%; transition: width 0.1s ease-out;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>LinguaFlow - 同传测试面板</h1>
+
+    <div class="status-bar">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-text" id="statusText">未连接</span>
+    </div>
+
+    <!-- 实时状态指示 -->
+    <div class="status-indicators">
+        <div class="indicator">
+            <div class="indicator-label">ASR 语音识别</div>
+            <div class="indicator-value idle" id="indAsr">未启动</div>
+        </div>
+        <div class="indicator">
+            <div class="indicator-label">AI 翻译</div>
+            <div class="indicator-value idle" id="indTrans">未使用</div>
+        </div>
+        <div class="indicator">
+            <div class="indicator-label">音频输入</div>
+            <div class="waveform-bar"><div class="waveform-fill" id="waveformFill"></div></div>
+        </div>
+        <div class="indicator">
+            <div class="indicator-label">已发送数据包</div>
+            <div class="indicator-value idle" id="indPackets">0</div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn-connect" id="btnConnect" onclick="toggleConnect()">连接 WebSocket</button>
+        <button class="btn-record" id="btnRecord" onclick="toggleRecord()" disabled>开始录音</button>
+        <select id="sourceLang"><option value="en">英语 → 中文</option><option value="ja">日语 → 中文</option><option value="ko">韩语 → 中文</option></select>
+        <input type="text" id="textInput" placeholder="或直接输入文本测试..." style="flex:1;min-width:200px;">
+        <button class="btn-send" onclick="sendText()" disabled>发送文本</button>
+        <button class="btn-clear" onclick="clearResults()">清空结果</button>
+    </div>
+
+    <div class="result-area">
+        <div class="panel">
+            <h3>实时字幕 / 原文</h3>
+            <div id="sourcePanel"></div>
+        </div>
+        <div class="panel">
+            <h3>翻译结果</h3>
+            <div id="targetPanel"></div>
+        </div>
+    </div>
+
+    <div class="log-area" id="logArea"></div>
+</div>
+
+<script>
+const WS_URL = 'ws://localhost:8080/api/ws/interpretation';
+let ws = null;
+let mediaRecorder = null;
+let audioContext = null;
+let isRecording = false;
+
+// ---- 状态指示器 ----
+let packetCount = 0;
+let audioLevel = 0;  // 0-100
+
+function setIndicator(id, text, state) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'indicator-value ' + (state || 'idle');
+}
+
+function updateWaveform(level) {
+    const el = document.getElementById('waveformFill');
+    if (el) el.style.width = Math.min(100, Math.max(0, level)) + '%';
+}
+
+// ---- 日志 ----
+function log(msg) {
+    const el = document.getElementById('logArea');
+    const time = new Date().toLocaleTimeString();
+    el.innerHTML += `<div class="log-line">[${time}] ${msg}</div>`;
+    el.scrollTop = el.scrollHeight;
+}
+
+// ---- WebSocket ----
+function toggleConnect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        closeWS();
+    } else {
+        connectWS();
+    }
+}
+
+function connectWS() {
+    updateStatus('connecting', '连接中...');
+    log(`正在连接 ${WS_URL}`);
+    try {
+        ws = new WebSocket(WS_URL);
+    } catch(e) {
+        updateStatus('error', '连接失败: ' + e.message);
+        log('连接异常: ' + e.message);
+        return;
+    }
+
+    ws.onopen = () => {
+        updateStatus('connected', '已连接 - 同传服务就绪');
+        document.getElementById('btnConnect').textContent = '断开连接';
+        document.getElementById('btnRecord').disabled = false;
+        document.getElementById('btnSend').disabled = false;
+        log('WebSocket 已连接');
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleResult(data);
+        } catch(e) {
+            log('解析消息失败: ' + event.data);
+        }
+    };
+
+    ws.onclose = () => {
+        updateStatus('', '未连接');
+        document.getElementById('btnConnect').textContent = '连接 WebSocket';
+        document.getElementById('btnRecord').disabled = true;
+        document.getElementById('btnSend').disabled = false;
+        if (isRecording) stopRecording();
+        // 重置所有指示器
+        setIndicator('indAsr', '未启动', 'idle');
+        setIndicator('indTrans', '未使用', 'idle');
+        updateWaveform(0);
+        packetCount = 0;
+        setIndicator('indPackets', '0', 'idle');
+        log('WebSocket 已断开');
+    };
+
+    ws.onerror = (err) => {
+        updateStatus('error', '连接错误');
+        log('WebSocket 错误');
+    };
+}
+
+function closeWS() {
+    if (ws) { ws.close(); ws = null; }
+}
+
+function updateStatus(state, text) {
+    const dot = document.getElementById('statusDot');
+    dot.className = 'status-dot ' + state;
+    document.getElementById('statusText').textContent = text;
+}
+
+// ---- 消息处理 ----
+function handleResult(data) {
+    const type = data.type;
+    const time = new Date().toLocaleTimeString();
+
+    switch(type) {
+        case 'CONNECTED':
+            // 判断ASR是否可用
+            const asrMode = (data.message || '').includes('语音+文本');
+            setIndicator('indAsr', asrMode ? '已启用' : '降级(文本)', asrMode ? 'ok' : 'warn');
+            setIndicator('indTrans', '就绪', 'ok');
+            packetCount = 0;
+            setIndicator('indPackets', '0', 'idle');
+
+            addMsg('sourcePanel', `CONNECTED - ${data.message || ''}`, 'info', type, time);
+            addMsg('targetPanel', `源语言: ${data.sourceLang} | 目标语言: ${data.targetLang}`, 'info', type, time);
+            log(`[CONNECTED] sessionId=${data.sessionId}, lang=${data.sourceLang}→${data.targetLang}, ASR=${asrMode ? 'ON' : 'OFF'}`);
+            break;
+
+        case 'SUBTITLE':
+            setIndicator('indAsr', '识别中...', 'ok');
+            setIndicator('indTrans', '翻译中...', 'warn');
+            addMsg('sourcePanel', data.sourceText, 'subtitle', type, time);
+            addMsg('targetPanel', data.targetText || '(翻译中...)', 'subtitle', type, time);
+            log(`[SUBTITLE] ${data.sourceText} → ${data.targetText}`);
+            break;
+
+        case 'COMPLET':
+            setIndicator('indAsr', '终句 ✓', 'ok');
+            setIndicator('indTrans', data.targetText && !data.targetText.includes('[AI') ? '翻译完成 ✓' : data.targetText || '',
+                data.targetText && !data.targetText.includes('[AI') && !data.targetText.includes('[错误]') ? 'ok' : 'err');
+            addMsg('sourcePanel', `[终句] ${data.sourceText}`, 'complet', type, time);
+            addMsg('targetPanel', `[终句] ${data.targetText}`, 'complet', type, time);
+            log(`[COMPLET] ${data.sourceText} → ${data.targetText}`);
+            break;
+
+        case 'CORRECTION':
+            addMsg('targetPanel',
+                `<span class="source-text">${data.oldTranslation}</span> → <span class="target-text">${data.newTranslation}</span>`,
+                'correction', type, time);
+            log(`[CORRECTION] #${data.index}: ${data.oldTranslation} → ${data.newTranslation}`);
+            break;
+
+        case 'ERROR':
+            addMsg('sourcePanel', `错误(${data.code}): ${data.message}`, 'error', type, time);
+            log(`[ERROR] ${data.code}: ${data.message}`);
+            break;
+
+        default:
+            log(`[未知类型] ${JSON.stringify(data)}`);
+    }
+}
+
+function addMsg(panelId, content, cls, tagType, time) {
+    const panel = document.getElementById(panelId);
+    panel.innerHTML += `
+        <div class="msg-item msg-${cls}">
+            <span class="tag tag-${tagType}">${tagType}</span>
+            <span class="time">${time}</span><br>${content}
+        </div>`;
+    panel.scrollTop = panel.scrollHeight;
+}
+
+function clearResults() {
+    document.getElementById('sourcePanel').innerHTML = '';
+    document.getElementById('targetPanel').innerHTML = '';
+    document.getElementById('logArea').innerHTML = '';
+}
+
+// ---- 录音 ----
+let audioWorkletNode = null;
+let sendInterval = null;
+
+// 降采样：从浏览器采样率降到 16000Hz（ASR标准采样率）
+const TARGET_SAMPLE_RATE = 16000;
+
+async function toggleRecord() {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        await startRecording();
+    }
+}
+
+async function startRecording() {
+    try {
+        log('正在请求麦克风权限...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        log('麦克风权限已获取');
+
+        // 创建 AudioContext（浏览器自适应采样率）
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const sourceSampleRate = audioContext.sampleRate;
+        log(`原始采样率: ${sourceSampleRate}Hz → 目标: ${TARGET_SAMPLE_RATE}Hz`);
+
+        // 计算降采样比例
+        const ratio = sourceSampleRate / TARGET_SAMPLE_RATE;
+        log(`降采样比例: ${ratio}:1`);
+
+        const source = audioContext.createMediaStreamSource(stream);
+
+        // 使用 ScriptProcessorNode 收集音频
+        const bufferSize = 4096;
+        const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+        // 音频缓冲区：攒够一定量再发送
+        let audioBuffer = [];
+        const SEND_INTERVAL_MS = 300;   // 每300ms发送一次
+        const MIN_SAMPLES = 3200;       // 最少攒3200个样本（200ms@16kHz ≈ 6.4KB）
+
+        processor.onaudioprocess = (e) => {
+            if (!isRecording) return;
+            const floatData = e.inputBuffer.getChannelData(0);
+
+            // 计算音量（RMS）用于波形显示
+            let sum = 0;
+            for (let i = 0; i < floatData.length; i++) {
+                sum += floatData[i] * floatData[i];
+            }
+            const rms = Math.sqrt(sum / floatData.length);
+            audioLevel = Math.min(100, rms * 500);  // 放大以便可视化
+            updateWaveform(audioLevel);
+
+            // 降采样 + 转PCM（正确的16bit有符号小端序）
+            for (let i = 0; i < floatData.length; i += ratio) {
+                const s = Math.max(-1, Math.min(1, floatData[i]));
+                // 统一映射到 [-32768, 32767]
+                const sample = s < 0 ? s * 32768 : s * 32767;
+                // 转为无符号16位整数，再拆成两个字节（小端序）
+                const uSample = sample < 0 ? sample + 65536 : sample;  // 补码转无符号
+                audioBuffer.push(uSample & 0xFF);           // 低字节
+                audioBuffer.push((uSample >> 8) & 0xFF);    // 高字节
+            }
+        };
+
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+
+        mediaRecorder = { stream, source, processor };
+        isRecording = true;
+
+        // 定时发送缓冲区数据
+        sendInterval = setInterval(() => {
+            if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+            // 每次最多发送 8000 字节（250ms@16kHz），防止数据过大
+            const MAX_BYTES_PER_SEND = 8000;
+            if (audioBuffer.length < MIN_SAMPLES * 2) return;
+
+            // 取出数据（限制大小）
+            const chunkLen = Math.min(audioBuffer.length, MAX_BYTES_PER_SEND);
+            const chunk = new Uint8Array(audioBuffer.splice(0, chunkLen));
+
+            // 同步Base64编码
+            const base64 = uint8ToBase64(chunk);
+            sendAudioChunk(base64);
+        }, SEND_INTERVAL_MS);
+
+        const btn = document.getElementById('btnRecord');
+        btn.textContent = '停止录音';
+        btn.classList.add('recording');
+
+        log(`录音开始 ✓ (每${SEND_INTERVAL_MS}ms, 已降采样至${TARGET_SAMPLE_RATE}Hz)`);
+    } catch(err) {
+        alert('无法访问麦克风: ' + err.message);
+        log('❌ 麦克风错误: ' + err.message);
+    }
+}
+
+function stopRecording() {
+    log('正在停止录音...');
+    isRecording = false;
+
+    // 清理定时器
+    if (sendInterval) {
+        clearInterval(sendInterval);
+        sendInterval = null;
+    }
+
+    // 重置波形
+    updateWaveform(0);
+    setIndicator('indAsr', '已停止', 'idle');
+
+    // 通知后端停止ASR识别（关键！否则ASR永远不返回结果）
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'STOP_AUDIO' }));
+        log('已发送 STOP_AUDIO 信号');
+    }
+
+    if (mediaRecorder) {
+        try {
+            if (mediaRecorder.processor) mediaRecorder.processor.disconnect();
+            if (mediaRecorder.source) mediaRecorder.source.disconnect();
+            if (mediaRecorder.stream) mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        } catch(e) {
+            log('清理资源时出错(可忽略): ' + e.message);
+        }
+        mediaRecorder = null;
+    }
+
+    if (audioContext) {
+        audioContext.close().catch(() => {});
+        audioContext = null;
+    }
+
+    const btn = document.getElementById('btnRecord');
+    btn.textContent = '开始录音';
+    btn.classList.remove('recording');
+    log('录音已停止');
+}
+
+// 高效的 Uint8Array -> Base64
+function uint8ToBase64(bytes) {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+// ---- 发送数据 ----
+function sendAudioChunk(base64Audio) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    packetCount++;
+    setIndicator('indPackets', packetCount + ' 包', 'ok');
+    const msg = JSON.stringify({
+        type: 'AUDIO_CHUNK',
+        data: base64Audio,
+        sourceLang: document.getElementById('sourceLang').value,
+        targetLang: 'zh'
+    });
+    ws.send(msg);
+}
+
+function sendText() {
+    const text = document.getElementById('textInput').value.trim();
+    if (!text) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert('WebSocket未连接'); return;
+    }
+
+    // 将文本作为音频数据发送（ASR会识别为文本）
+    const msg = JSON.stringify({
+        type: 'AUDIO_CHUNK',
+        data: btoa(unescape(encodeURIComponent(text))),
+        sourceLang: document.getElementById('sourceLang').value,
+        targetLang: 'zh'
+    });
+    ws.send(msg);
+    log(`发送文本: ${text}`);
+    document.getElementById('textInput').value = '';
+}
+</script>
+</body>
+</html>
