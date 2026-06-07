@@ -133,16 +133,24 @@ public class AsrServiceImpl implements AsrService {
             transcriber.setEnablePunctuation(true);
             // 启用ITN（数字转换）
             transcriber.setEnableITN(true);
+            
+            // 设置静音检测参数（关键！）
+            // 静音超过 800ms 自动断句，触发 onSentenceEnd
+            transcriber.addCustomedParam("max_sentence_silence", 800);
+            // 最长语音断句间隔（毫秒），超过此时间强制断句
+            transcriber.addCustomedParam("max_start_silence", 5000);
 
             // 启动识别
+            log.info("启动ASR识别会话: sessionId={}, format={}, sampleRate={}", 
+                    sessionId, asrConfig.getFormat(), asrConfig.getSampleRate());
             transcriber.start();
 
             transcriberMap.put(sessionId, transcriber);
-            log.info("ASR识别会话启动: {}", sessionId);
+            log.info("ASR识别会话已创建: {}", sessionId);
             return true;
-
         } catch (Exception e) {
-            log.error("启动ASR识别会话失败: {}", sessionId, e);
+            log.error("启动ASR识别失败: sessionId={}, error={}", sessionId, e.getMessage(), e);
+            callback.onError(e.getMessage());
             return false;
         }
     }
