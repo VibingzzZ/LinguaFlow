@@ -1,3 +1,10 @@
+
+
+<h1 align="center">LinguaFlow</h1>
+<p align="center">实时同声传译系统 · Real-time Simultaneous Interpretation</p>
+
+---
+
 <p align="center">
   <img src="https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?style=flat-square&logo=spring" alt="Spring Boot"/>
   <img src="https://img.shields.io/badge/Java-17-orange?style=flat-square&logo=java" alt="Java"/>
@@ -5,11 +12,6 @@
   <img src="https://img.shields.io/badge/LangChain4j-AI-purple?style=flat-square" alt="LangChain4j"/>
   <img src="https://img.shields.io/badge/阿里云ASR-流式语音识别-critical?style=flat-square" alt="Aliyun ASR"/>
 </p>
-
-<h1 align="center">LinguaFlow</h1>
-<p align="center">实时同声传译系统 · Real-time Simultaneous Interpretation</p>
-
----
 
 ## 概述
 
