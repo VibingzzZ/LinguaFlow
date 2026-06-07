@@ -67,6 +67,7 @@ public class InterpretationHandler extends TextWebSocketHandler {
                     if (isAudioData) {
                         // 音频数据：解码后发送到ASR
                         byte[] audioBytes = Base64.getDecoder().decode(data);
+                        log.debug("收到音频块: sessionId={}, size={} bytes", session.getId(), audioBytes.length);
                         interpretationService.processAudioChunk(
                                 session.getId(),
                                 audioBytes,
@@ -128,13 +129,23 @@ public class InterpretationHandler extends TextWebSocketHandler {
      * 发送消息给客户端
      */
     private void sendMessage(WebSocketSession session, Object payload) {
+        // 检查会话是否仍然打开
+        if (session == null || !session.isOpen()) {
+            log.debug("WebSocket会话已关闭，跳过发送: {}", payload);
+            return;
+        }
         try {
             String json = objectMapper.writeValueAsString(payload);
             synchronized (session) {  // WebSocketSession 不是线程安全的，需要同步
                 session.sendMessage(new TextMessage(json));
             }
         } catch (IOException e) {
-            log.error("发送消息失败", e);
+            // 静默处理已关闭会话的异常
+            if (e.getMessage() != null && e.getMessage().contains("WebSocket session has been closed")) {
+                log.debug("WebSocket已关闭，无法发送消息");
+            } else {
+                log.error("发送消息失败", e);
+            }
         }
     }
 

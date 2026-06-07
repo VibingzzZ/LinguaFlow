@@ -86,6 +86,7 @@ public class InterpretationService {
      */
     public void processAudioChunk(String sessionId, byte[] audioData, Consumer<Map<String, Object>> callback) {
         if (!Boolean.TRUE.equals(asrAvailable.get(sessionId))) {
+            log.debug("ASR不可用，跳过音频块: sessionId={}", sessionId);
             return;
         }
         try {

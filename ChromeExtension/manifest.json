@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "LinguaFlow 实时翻译",
+  "version": "1.0.0",
+  "description": "AI实时语音翻译 - 基于Spring Boot + 阿里云ASR + OpenAI",
+  "permissions": [
+    "storage",
+    "tts",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "ws://localhost:8080/*",
+    "http://localhost:8080/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "css": ["styles/panel.css"],
+    "run_at": "document_idle",
+    "all_frames": false
+  }],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "toggle-recording": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Space",
+        "mac": "Command+Shift+Space"
+      },
+      "description": "开始/停止录音翻译"
+    }
+  }
+}

@@ -45,15 +45,20 @@ public class TranslationServiceImpl implements TranslationService {
     );
 
     // 超时时间（毫秒）
-    private static final int TIMEOUT_MS = 3000;
+    // 增加到 15 秒，因为长文本翻译需要更多时间
+    private static final int TIMEOUT_MS = 15000;
 
     // 速率限制：两次请求最小间隔（毫秒），防止触发 API RPM 限制
-    // 现在只在终句时调用翻译，所以1秒间隔足够
-    private static final long MIN_REQUEST_INTERVAL_MS = 1000;
+    // 实时同传场景下，增加到 3 秒间隔，避免频繁触发限流
+    private static final long MIN_REQUEST_INTERVAL_MS = 3000;
 
     // 上次请求时间戳（synchronized 保护）
     private long lastRequestTime = 0;
     private final Object rateLimitLock = new Object();
+
+    // 连续限流错误计数器
+    private int consecutiveRateLimitErrors = 0;
+    private final Object rateLimitCounterLock = new Object();
 
     // 语言名称映射
     private static final Map<String, String> LANG_NAMES = Map.of(
@@ -156,22 +161,50 @@ public class TranslationServiceImpl implements TranslationService {
         String tgtName = LANG_NAMES.getOrDefault(targetLang, targetLang);
 
         String prompt = String.format(
-                "请将以下%s翻译为%s，只输出翻译结果，不要任何解释：\n%s",
+                """
+                你是一个专业的同声传译员。请将以下%s翻译为%s。
+                
+                要求：
+                1. 只输出翻译结果，不要任何解释或额外内容
+                2. 保持口语化表达，适合语音朗读
+                3. 保留专有名词原文（人名、地名、品牌名等）
+                4. 如果是疑问句/感叹句，保留语气
+                5. 短句优先，避免冗长
+                
+                原文：%s
+                """,
                 srcName, tgtName, text
         );
 
         try {
-            return chatModel.chat(prompt);
+            String result = chatModel.chat(prompt);
+            // 成功时重置限流计数器
+            synchronized (rateLimitCounterLock) {
+                consecutiveRateLimitErrors = 0;
+            }
+            return result.trim();
         } catch (Exception e) {
             // 检查是否为429限流错误
             boolean isRateLimit = e.getClass().getSimpleName().contains("RateLimit")
                     || (e.getMessage() != null && e.getMessage().contains("429"));
             
             if (isRateLimit) {
-                log.warn("触发RPM限制，等待5秒后重试...");
+                synchronized (rateLimitCounterLock) {
+                    consecutiveRateLimitErrors++;
+                }
+                
+                // 指数退避：第1次等5秒，第2次等15秒，第3次等30秒
+                int retryCount = Math.min(consecutiveRateLimitErrors, 3);
+                long backoffSeconds = retryCount == 1 ? 5 : retryCount == 2 ? 15 : 30;
+                
+                log.warn("触发RPM限制(连续{}次)，指数退避等待{}秒...", consecutiveRateLimitErrors, backoffSeconds);
                 try {
-                    Thread.sleep(5000);
-                    return chatModel.chat(prompt);
+                    Thread.sleep(backoffSeconds * 1000);
+                    String result = chatModel.chat(prompt);
+                    synchronized (rateLimitCounterLock) {
+                        consecutiveRateLimitErrors = 0;
+                    }
+                    return result.trim();
                 } catch (Exception retryEx) {
                     log.error("重试后仍然失败: {}", retryEx.getMessage());
                     return "[限流错误] " + text;
