@@ -41,6 +41,14 @@ public class AsrServiceImpl implements AsrService {
 
     @PostConstruct
     public void init() {
+        // 打印实际使用的配置（排查 UID 不匹配问题）
+        log.info("=== ASR 配置 ===");
+        log.info("  AccessKeyId : {}...{}", asrConfig.getAccessKeyId().substring(0, 8), asrConfig.getAccessKeyId().substring(asrConfig.getAccessKeyId().length() - 4));
+        log.info("  Secret      : {}...{}", asrConfig.getAccessKeySecret().substring(0, 4), asrConfig.getAccessKeySecret().substring(asrConfig.getAccessKeySecret().length() - 4));
+        log.info("  AppKey      : {}", asrConfig.getAppKey());
+        log.info("  URL         : {}", asrConfig.getUrl());
+        log.info("===============");
+
         try {
             refreshToken();
             log.info("阿里云ASR服务初始化成功");
@@ -82,8 +90,8 @@ public class AsrServiceImpl implements AsrService {
         if (nlsClient != null) {
             nlsClient.shutdown();
         }
-        this.nlsClient = new NlsClient(currentToken);
-        log.info("Token刷新成功，过期时间: {}", accessToken.getExpireTime());
+        this.nlsClient = new NlsClient(asrConfig.getUrl(), currentToken);
+        log.info("Token刷新成功，过期时间: {}，连接地址: {}", accessToken.getExpireTime(), asrConfig.getUrl());
     }
 
     /**
@@ -147,11 +155,26 @@ public class AsrServiceImpl implements AsrService {
     @Override
     public void sendAudio(String sessionId, byte[] audioData) {
         SpeechTranscriber transcriber = transcriberMap.get(sessionId);
-        if (transcriber != null && audioData != null && audioData.length > 0) {
-            try {
+        if (transcriber == null) {
+            log.warn("ASR转录器不存在(可能未启动): {}", sessionId);
+            return;
+        }
+        try {
+            // 检查状态：只有 STARTED 状态才能发送数据
+            SpeechReqProtocol.State state = transcriber.getState();
+            if ("STATE_CLOSED".equals(state) || "STATE_FINISHED".equals(state)) {
+                log.warn("ASR已处于{}状态，无法发送数据: {}", state, sessionId);
+                return;
+            }
+            if (audioData != null && audioData.length > 0) {
                 transcriber.send(audioData, audioData.length);
-            } catch (Exception e) {
-                log.error("发送音频数据失败: {}", sessionId, e);
+            }
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("STATE_CLOSED")) {
+                log.warn("ASR会话已关闭，停止发送: {}", sessionId);
+            } else {
+                log.error("发送音频数据异常: {}", sessionId, e);
             }
         }
     }
@@ -221,6 +244,7 @@ public class AsrServiceImpl implements AsrService {
             @Override
             public void onTranscriberStart(SpeechTranscriberResponse response) {
                 log.info("[ASR-开始] task_id={}, status={}", response.getTaskId(), response.getStatus());
+                callback.onReady();  // 通知调用方：ASR已就绪，可以发送音频
             }
 
             @Override

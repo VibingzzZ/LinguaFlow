@@ -124,6 +124,11 @@ public class TranslationServiceImpl implements TranslationService {
      * 调用LangChain4j大模型进行翻译
      */
     private String doTranslate(String text, String sourceLang, String targetLang) {
+        if (chatModel == null) {
+            log.warn("ChatLanguageModel未注入，返回占位译文");
+            return "[AI未配置] " + text;
+        }
+
         String srcName = LANG_NAMES.getOrDefault(sourceLang, sourceLang);
         String tgtName = LANG_NAMES.getOrDefault(targetLang, targetLang);
 
@@ -132,7 +137,12 @@ public class TranslationServiceImpl implements TranslationService {
                 srcName, tgtName, text
         );
 
-        return chatModel.chat(prompt);
+        try {
+            return chatModel.chat(prompt);
+        } catch (Exception e) {
+            log.error("调用大模型失败: {}", e.getMessage());
+            return "[模型错误] " + text;
+        }
     }
 
     @Override

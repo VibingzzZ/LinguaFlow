@@ -31,6 +31,11 @@ public interface AsrService {
      */
     interface RecognitionCallback {
         /**
+         * ASR连接就绪（WebSocket已建立，可以发送音频）
+         */
+        default void onReady() {}
+
+        /**
          * 收到识别结果
          * @param text 识别文本
          * @param isFinal 是否为最终结果（true=终句，false=中间结果）
