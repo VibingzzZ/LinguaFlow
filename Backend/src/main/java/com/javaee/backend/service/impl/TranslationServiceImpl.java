@@ -48,7 +48,8 @@ public class TranslationServiceImpl implements TranslationService {
     private static final int TIMEOUT_MS = 3000;
 
     // 速率限制：两次请求最小间隔（毫秒），防止触发 API RPM 限制
-    private static final long MIN_REQUEST_INTERVAL_MS = 2000;
+    // 现在只在终句时调用翻译，所以1秒间隔足够
+    private static final long MIN_REQUEST_INTERVAL_MS = 1000;
 
     // 上次请求时间戳（synchronized 保护）
     private long lastRequestTime = 0;
@@ -162,6 +163,20 @@ public class TranslationServiceImpl implements TranslationService {
         try {
             return chatModel.chat(prompt);
         } catch (Exception e) {
+            // 检查是否为429限流错误
+            boolean isRateLimit = e.getClass().getSimpleName().contains("RateLimit")
+                    || (e.getMessage() != null && e.getMessage().contains("429"));
+            
+            if (isRateLimit) {
+                log.warn("触发RPM限制，等待5秒后重试...");
+                try {
+                    Thread.sleep(5000);
+                    return chatModel.chat(prompt);
+                } catch (Exception retryEx) {
+                    log.error("重试后仍然失败: {}", retryEx.getMessage());
+                    return "[限流错误] " + text;
+                }
+            }
             log.error("调用大模型失败: {}", e.getMessage());
             return "[模型错误] " + text;
         }
