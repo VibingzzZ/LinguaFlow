@@ -275,6 +275,7 @@ function connectWS() {
         document.getElementById('btnRecord').disabled = false;
         document.getElementById('btnSend').disabled = false;
         log('WebSocket 已连接');
+        warmUpTts();  // 预热语音合成（浏览器要求用户交互后才能播放语音）
     };
 
     ws.onmessage = (event) => {
@@ -547,11 +548,27 @@ function uint8ToBase64(bytes) {
 }
 
 // 使用浏览器 SpeechSynthesis API 朗读文本
+let ttsReady = false;
+
+function warmUpTts() {
+    if (!window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance('');
+    u.volume = 0;
+    u.rate = 1;
+    window.speechSynthesis.speak(u);
+    ttsReady = true;
+    log('TTS 已预热（浏览器语音合成就绪）');
+}
+
 function speakTts(text, lang) {
     if (!window.speechSynthesis) {
         log('TTS: 浏览器不支持语音合成');
         setIndicator('indTts', '不支持', 'err');
         return;
+    }
+
+    if (!ttsReady) {
+        warmUpTts();
     }
 
     window.speechSynthesis.cancel();
@@ -562,8 +579,12 @@ function speakTts(text, lang) {
     utterance.pitch = 1.0;
     utterance.volume = 0.9;
 
+    utterance.onstart = () => {
+        log('TTS 开始播放: ' + text.substring(0, 30));
+    };
     utterance.onend = () => {
         setIndicator('indTts', '待命中', 'idle');
+        log('TTS 播放完成');
     };
     utterance.onerror = (e) => {
         log('TTS播放错误: ' + e.error);
@@ -571,6 +592,11 @@ function speakTts(text, lang) {
     };
 
     window.speechSynthesis.speak(utterance);
+
+    // Chrome 有时会暂停长时间不用的 speechSynthesis，需要 resume
+    if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+    }
 }
 
 // ---- 发送数据 ----

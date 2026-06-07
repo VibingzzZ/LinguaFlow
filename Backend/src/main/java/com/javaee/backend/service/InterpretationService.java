@@ -148,7 +148,8 @@ public class InterpretationService {
                         "timestamp", System.currentTimeMillis()
                 )));
 
-                if (isFinal && translation != null && !translation.isBlank()) {
+                if (isFinal && translation != null && !translation.isBlank()
+                        && !translation.startsWith("[")) {
                     callback.accept(new HashMap<>(Map.of(
                             "type", EventType.TTS_SPEAK.name(),
                             "text", translation,

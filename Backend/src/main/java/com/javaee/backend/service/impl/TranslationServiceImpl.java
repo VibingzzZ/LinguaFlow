@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.ChatModel;
 
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -46,6 +47,12 @@ public class TranslationServiceImpl implements TranslationService {
 
     // 超时时间（毫秒）
     private static final int TIMEOUT_MS = 3000;
+
+    // 速率限制：两次请求最小间隔（毫秒），防止触发 API RPM 限制
+    private static final long MIN_REQUEST_INTERVAL_MS = 1000;
+
+    // 上次请求时间戳
+    private final AtomicLong lastRequestTime = new AtomicLong(0);
 
     // 语言名称映射
     private static final Map<String, String> LANG_NAMES = Map.of(
@@ -121,13 +128,26 @@ public class TranslationServiceImpl implements TranslationService {
     }
 
     /**
-     * 调用LangChain4j大模型进行翻译
+     * 调用LangChain4j大模型进行翻译（带速率限制）
      */
     private String doTranslate(String text, String sourceLang, String targetLang) {
         if (chatModel == null) {
             log.warn("ChatLanguageModel未注入，返回占位译文");
             return "[AI未配置] " + text;
         }
+
+        // 速率限制：确保两次请求之间有足够间隔
+        long now = System.currentTimeMillis();
+        long last = lastRequestTime.get();
+        long waitMs = last + MIN_REQUEST_INTERVAL_MS - now;
+        if (waitMs > 0) {
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lastRequestTime.set(System.currentTimeMillis());
 
         String srcName = LANG_NAMES.getOrDefault(sourceLang, sourceLang);
         String tgtName = LANG_NAMES.getOrDefault(targetLang, targetLang);
