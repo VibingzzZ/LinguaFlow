@@ -259,6 +259,9 @@ function toggleConnect() {
 }
 
 function connectWS() {
+    // 必须在用户点击事件中预热 TTS，浏览器才允许后续播放
+    warmUpTts();
+
     updateStatus('connecting', '连接中...');
     log(`正在连接 ${WS_URL}`);
     try {
@@ -275,7 +278,6 @@ function connectWS() {
         document.getElementById('btnRecord').disabled = false;
         document.getElementById('btnSend').disabled = false;
         log('WebSocket 已连接');
-        warmUpTts();  // 预热语音合成（浏览器要求用户交互后才能播放语音）
     };
 
     ws.onmessage = (event) => {
