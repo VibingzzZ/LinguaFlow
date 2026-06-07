@@ -182,6 +182,10 @@
             <div class="indicator-value idle" id="indTrans">未使用</div>
         </div>
         <div class="indicator">
+            <div class="indicator-label">TTS 朗读</div>
+            <div class="indicator-value idle" id="indTts">待命中</div>
+        </div>
+        <div class="indicator">
             <div class="indicator-label">音频输入</div>
             <div class="waveform-bar"><div class="waveform-fill" id="waveformFill"></div></div>
         </div>
@@ -291,6 +295,7 @@ function connectWS() {
         // 重置所有指示器
         setIndicator('indAsr', '未启动', 'idle');
         setIndicator('indTrans', '未使用', 'idle');
+        setIndicator('indTts', '待命中', 'idle');
         updateWaveform(0);
         packetCount = 0;
         setIndicator('indPackets', '0', 'idle');
@@ -357,8 +362,14 @@ function handleResult(data) {
             break;
 
         case 'ERROR':
-            addMsg('sourcePanel', `错误(${data.code}): ${data.message}`, 'error', type, time);
+            addMsg('sourcePanel', `\u9519\u8bef(${data.code}): ${data.message}`, 'error', type, time);
             log(`[ERROR] ${data.code}: ${data.message}`);
+            break;
+
+        case 'TTS_SPEAK':
+            setIndicator('indTts', `朗读: ${data.text.substring(0, 12)}...`, 'ok');
+            speakTts(data.text, data.language);
+            log(`[TTS_SPEAK] lang=${data.language} text=\"${data.text.substring(0, 30)}...\"`);
             break;
 
         default:
@@ -533,6 +544,33 @@ function uint8ToBase64(bytes) {
         binary += String.fromCharCode(bytes[i]);
     }
     return btoa(binary);
+}
+
+// 使用浏览器 SpeechSynthesis API 朗读文本
+function speakTts(text, lang) {
+    if (!window.speechSynthesis) {
+        log('TTS: 浏览器不支持语音合成');
+        setIndicator('indTts', '不支持', 'err');
+        return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang === 'zh' ? 'zh-CN' : (lang === 'en' ? 'en-US' : lang);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 0.9;
+
+    utterance.onend = () => {
+        setIndicator('indTts', '待命中', 'idle');
+    };
+    utterance.onerror = (e) => {
+        log('TTS播放错误: ' + e.error);
+        setIndicator('indTts', '播放失败', 'err');
+    };
+
+    window.speechSynthesis.speak(utterance);
 }
 
 // ---- 发送数据 ----

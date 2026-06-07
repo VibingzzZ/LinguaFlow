@@ -10,5 +10,6 @@ public enum EventType {
     SUBTITLE,           //  实时字幕翻译
     CORRECTION,         //  上下文修正
     COMPLET,            //  一句话完整翻译（ASR稳定后的终版）
+    TTS_SPEAK,          //  TTS朗读指令（前端浏览器SpeechSynthesis朗读翻译结果）
     ERROR               //  错误
 }

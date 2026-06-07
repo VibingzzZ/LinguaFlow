@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.Base64;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -140,14 +139,23 @@ public class InterpretationService {
                 int index = window.add(recognizedText, translation);
 
                 String eventType = isFinal ? EventType.COMPLET.name() : EventType.SUBTITLE.name();
-                callback.accept(Map.of(
+                callback.accept(new HashMap<>(Map.of(
                         "type", eventType,
                         "index", index,
                         "sourceText", recognizedText,
                         "targetText", translation,
                         "isFinal", isFinal,
                         "timestamp", System.currentTimeMillis()
-                ));
+                )));
+
+                if (isFinal && translation != null && !translation.isBlank()) {
+                    callback.accept(new HashMap<>(Map.of(
+                            "type", EventType.TTS_SPEAK.name(),
+                            "text", translation,
+                            "language", targetLang,
+                            "timestamp", System.currentTimeMillis()
+                    )));
+                }
 
                 // 攒够句子数触发上下文修正
                 if (window.getPendingCount() >= CORRECTION_WINDOW) {
