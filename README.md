@@ -196,7 +196,7 @@ ws://{host}:8080/api/ws/interpretation
 
 ### 🎬 功能演示
 
-[▶️ 点击观看演示视频](docs/showcase_video.mp4)
+![展示视频](docs/showcase.gif)
 
 </div>
 
