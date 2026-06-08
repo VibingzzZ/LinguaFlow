@@ -192,19 +192,11 @@ ws://{host}:8080/api/ws/interpretation
 
 ---
 
-<!-- 视频演示占位区域 -->
-
 <div align="center">
-
-<br/>
-<br/>
 
 ### 🎬 功能演示
 
-<em>（视频嵌入位置 — 支持 YouTube / Bilibili iframe 或本地 MP4）</em>
-
-<br/>
-<br/>
+[▶️ 点击观看演示视频](docs/showcase_video.mp4)
 
 </div>
 
